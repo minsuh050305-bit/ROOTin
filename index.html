@@ -1,0 +1,873 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+<title>Rootin</title>
+<meta name="description" content="습관과 일정을 함께 기록하는 나만의 정원" />
+
+<!-- PWA / 홈 화면 설치용 메타 -->
+<meta name="theme-color" content="#f3f2f2" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Rootin" />
+<link rel="manifest" href="./manifest.json" />
+<link rel="icon" href="./icon-192.png" />
+<link rel="apple-touch-icon" href="./apple-touch-icon.png" />
+
+<link id="rootin-fonts" rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=Gowun+Batang:wght@400;700&family=Lora:wght@400;500;600&family=Noto+Serif+KR:wght@300;400;500;600&display=swap" />
+
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+<style>
+  html, body { margin: 0; padding: 0; background: #f3f2f2; }
+  #root { min-height: 100vh; }
+</style>
+</head>
+<body>
+<div id="root"><div style="padding:24px;font-family:system-ui,sans-serif;color:#201f1d;">불러오는 중…</div></div>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useMemo, useCallback } = React;
+
+/* ===== window.storage 셰임 — Claude 아티팩트의 window.storage API를
+   브라우저 localStorage로 그대로 흉내냅니다 (컴포넌트 코드는 수정 없음) ===== */
+window.storage = {
+  async get(key) {
+    const raw = localStorage.getItem("rootin:" + key);
+    if (raw === null) throw new Error("not found");
+    return { key, value: raw };
+  },
+  async set(key, value) {
+    localStorage.setItem("rootin:" + key, value);
+    return { key, value };
+  },
+  async delete(key) {
+    localStorage.removeItem("rootin:" + key);
+    return { key, deleted: true };
+  },
+  async list(prefix) {
+    const p = "rootin:" + (prefix || "");
+    const keys = Object.keys(localStorage).filter((k) => k.startsWith(p)).map((k) => k.slice(7));
+    return { keys };
+  },
+};
+
+
+/* ===== 팔레트 / 타이포 (Rootin 디자인 원본 그대로) ===== */
+const PAPER = "#f3f2f2";
+const SHEET_BG = "#eae9e9";
+const INK = "#201f1d";
+const MOSS = "#5a6b4d";
+const MOSS_DEEP = "#3f4c34";
+const GOLD = "#b68235";
+const GOLD_DEEP = "#7d5411";
+const STREAK_ON = "#3f6b3d";
+const STREAK_ON_DEEP = "#2f4f2d";
+const STREAK_TINT = "#e8efe5";
+
+const FONT_DISPLAY = "'Cormorant Garamond', serif";
+const FONT_TITLE = "'Gowun Batang', serif";
+const FONT_LABEL = "'Noto Serif KR', serif";
+const FONT_BODY = "Lora, 'Noto Serif KR', serif";
+
+const LEAF_GREENS = ["#4c7a4a", "#5f8c52", "#3f6b3d", "#6f9a5e", "#557f4e", "#417346", "#7aa46a", "#48804f"];
+const LEAF_SLOTS = 22;
+
+// 시드 기반 난수 — 나무(습관)마다 잎 배치가 다르지만, 같은 나무는 렌더마다 그대로 유지됨
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// 가지 위에 무작위로 붙되, 안쪽→바깥쪽 순서로 채워지도록 반경만 정렬
+function generateCanopy(seed) {
+  const rand = mulberry32(seed);
+  const pts = [];
+  for (let i = 0; i < LEAF_SLOTS; i++) {
+    pts.push({
+      angle: rand() * Math.PI * 2,
+      r: Math.sqrt(rand()),
+      rx: 5.6 + rand() * 2.6,
+      ry: 2.8 + rand() * 2,
+      rot: rand() * 70 - 35,
+      wobble: (rand() - 0.5) * 6,
+    });
+  }
+  pts.sort((a, b) => a.r - b.r);
+  const maxRx = 34, maxRy = 34 * 0.78;
+  return pts.map((p) => ({
+    cx: +(52 + p.r * maxRx * Math.cos(p.angle) + p.wobble).toFixed(1),
+    cy: +(41 + p.r * maxRy * Math.sin(p.angle) + p.wobble * 0.5).toFixed(1),
+    a: Math.round(p.rot),
+    rx: +p.rx.toFixed(1),
+    ry: +p.ry.toFixed(1),
+  }));
+}
+
+const RING_D = [
+  "M42 104c0-3.5 4.5-6 10-6s10 2.5 10 6",
+  "M36 106c0-5.5 7-10 16-10s16 4.5 16 10",
+  "M30 108c0-7.5 10-13.5 22-13.5s22 6 22 13.5",
+];
+
+const WD = ["일", "월", "화", "수", "목", "금", "토"];
+
+// 일정 카테고리 — Rootin 팔레트 톤에 맞춘 색
+const CATEGORIES = [
+  { id: "job", label: "일", color: "#B5546A" },
+  { id: "school", label: "학교", color: "#C99A2E" },
+  { id: "church", label: "교회", color: "#4E8B5C" },
+  { id: "etc", label: "기타", color: "#3E6FA6" },
+  { id: "club", label: "동아리", color: "#7A7A72" },
+];
+const categoryColor = (id) => CATEGORIES.find((c) => c.id === id)?.color || "#7A7A72";
+
+/* ===== 날짜 유틸 ===== */
+const todayStr = (d = new Date()) => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+};
+const addDays = (dateStr, n) => {
+  const d = new Date(dateStr + "T00:00:00");
+  d.setDate(d.getDate() + n);
+  return todayStr(d);
+};
+const addMonths = (dateStr, n) => {
+  const d = new Date(dateStr + "T00:00:00");
+  d.setMonth(d.getMonth() + n);
+  return todayStr(d);
+};
+const hashNum = (str) => {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) | 0;
+  return Math.abs(h);
+};
+
+/* ===== 나무 SVG (숲 탭 카드 + 빈 상태 공용) ===== */
+function TreeSvg({ leaves, rings, scale, size = 130 }) {
+  return (
+    <svg width={size} height={(size * 118) / 104} viewBox="0 0 104 118" fill="none">
+      <g style={{ transformBox: "fill-box", transformOrigin: "50% 100%", transform: `scale(${scale})`, transition: "transform .4s cubic-bezier(.2,.8,.2,1)" }}>
+        <path d="M52 110V64" stroke="#6b4630" strokeWidth="6.4" strokeLinecap="round" />
+        <path d="M52 78C44 72 36 66 29 58M52 72c8-6 16-12 24-18M52 66c-6-6-10-12-14-20M52 60c6-6 10-12 14-20M52 64c0-8 0-14-1-24" stroke="#6b4630" strokeWidth="4.2" strokeLinecap="round" />
+        <path d="M29 58 20 50M29 58 24 46M76 54 84 46M76 54 78 42M38 46 32 38M38 46 40 34M66 40 72 32M66 40 64 28M51 40 45 31M51 40 57 30M51 40 51 25" stroke="#6b4630" strokeWidth="2.4" strokeLinecap="round" />
+        <path d="M20 50 15 44M24 46 21 39M84 46 89 41M78 42 81 35M32 38 27 31M40 34 38 27M72 32 77 26M64 28 63 21M45 31 41 25M57 30 61 24M51 25 51 18" stroke="#6b4630" strokeWidth="1.4" strokeLinecap="round" />
+        {leaves.map((leaf, i) => (
+          <ellipse
+            key={i}
+            cx={leaf.cx}
+            cy={leaf.cy}
+            rx={leaf.rx}
+            ry={leaf.ry}
+            transform={`rotate(${leaf.a} ${leaf.cx} ${leaf.cy})`}
+            fill={leaf.on ? leaf.color : "transparent"}
+            stroke={leaf.on ? leaf.color : "rgba(32,31,29,.12)"}
+            strokeWidth="0.8"
+            style={{
+              transformBox: "fill-box",
+              transformOrigin: "center",
+              transition: "fill .3s ease",
+              opacity: leaf.on ? 1 : 0.5,
+              animation: leaf.pop ? "leafPop .45s cubic-bezier(.2,1.4,.4,1)" : "none",
+            }}
+          />
+        ))}
+        {rings.map((r, i) => (
+          <path key={i} d={RING_D[i]} stroke={r.on ? GOLD : "rgba(32,31,29,.12)"} strokeWidth="1" fill="none" style={{ animation: r.on ? "ringGlow .6s ease-out" : "none" }} />
+        ))}
+      </g>
+      <path d="M22 110h60" stroke="#2d2b2b" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function RootinApp() {
+  const [habits, setHabits] = useState(null);
+  const [completions, setCompletions] = useState(null);
+  const [events, setEvents] = useState(null);
+  const [loaded, setLoaded] = useState(false);
+
+  const [currentDate, setCurrentDate] = useState(todayStr());
+  const [tab, setTab] = useState("today"); // "today" | "forest" | "calendar"
+  const [calendarMonth, setCalendarMonth] = useState(todayStr());
+  const [forestMonth, setForestMonth] = useState(todayStr().slice(0, 7));
+  const [sheet, setSheet] = useState(null); // null | "habit" | "event"
+  const [formTitle, setFormTitle] = useState("");
+  const [formTime, setFormTime] = useState("");
+  const [formAllDay, setFormAllDay] = useState(false);
+  const [formCategory, setFormCategory] = useState("job");
+  const [justChecked, setJustChecked] = useState(null);
+
+  /* ---- 폰트 로드 ---- */
+  useEffect(() => {
+    const id = "rootin-fonts";
+    if (!document.getElementById(id)) {
+      const link = document.createElement("link");
+      link.id = id;
+      link.rel = "stylesheet";
+      link.href =
+        "https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=Gowun+Batang:wght@400;700&family=Lora:wght@400;500;600&family=Noto+Serif+KR:wght@300;400;500;600&display=swap";
+      document.head.appendChild(link);
+    }
+  }, []);
+
+  /* ---- 데이터 로드 ---- */
+  useEffect(() => {
+    (async () => {
+      let h = [], c = {}, ev = {};
+      try { const r = await window.storage.get("habits", false); if (r) h = JSON.parse(r.value); } catch (e) {}
+      try { const r = await window.storage.get("completions", false); if (r) c = JSON.parse(r.value); } catch (e) {}
+      try { const r = await window.storage.get("events", false); if (r) ev = JSON.parse(r.value); } catch (e) {}
+      setHabits(h);
+      setCompletions(c);
+      setEvents(ev);
+      setLoaded(true);
+    })();
+  }, []);
+
+  const saveHabits = useCallback(async (next) => {
+    setHabits(next);
+    try { await window.storage.set("habits", JSON.stringify(next), false); } catch (e) {}
+  }, []);
+  const saveCompletions = useCallback(async (next) => {
+    setCompletions(next);
+    try { await window.storage.set("completions", JSON.stringify(next), false); } catch (e) {}
+  }, []);
+  const saveEvents = useCallback(async (next) => {
+    setEvents(next);
+    try { await window.storage.set("events", JSON.stringify(next), false); } catch (e) {}
+  }, []);
+
+  const shift = (n) => {
+    setCurrentDate((d) => addDays(d, n));
+    setJustChecked(null);
+  };
+
+  const toggleHabit = (id) => {
+    const list = completions[currentDate] || [];
+    const on = !list.includes(id);
+    const next = on ? [...list, id] : list.filter((x) => x !== id);
+    saveCompletions({ ...completions, [currentDate]: next });
+    setJustChecked(on ? id : null);
+  };
+
+  const deleteHabit = (id) => saveHabits(habits.filter((h) => h.id !== id));
+  const deleteEvent = (id) => {
+    const list = (events[currentDate] || []).filter((e) => e.id !== id);
+    saveEvents({ ...events, [currentDate]: list });
+  };
+
+  const openHabitSheet = () => { setSheet("habit"); setFormTitle(""); setFormTime(""); setFormAllDay(false); };
+  const openEventSheet = () => { setSheet("event"); setFormTitle(""); setFormTime(""); setFormAllDay(false); setFormCategory("job"); };
+  const closeSheet = () => setSheet(null);
+
+  const save = () => {
+    const title = formTitle.trim();
+    if (!title) return;
+    if (sheet === "habit") {
+      saveHabits([...habits, { id: `h_${Date.now()}`, name: title }]);
+    } else if (sheet === "event") {
+      const time = formAllDay || !formTime.trim() ? "" : formTime.trim();
+      const list = events[currentDate] || [];
+      saveEvents({ ...events, [currentDate]: [...list, { id: `e_${Date.now()}`, time, title, category: formCategory }] });
+    }
+    setSheet(null);
+    setFormTitle("");
+    setFormTime("");
+    setFormAllDay(false);
+    setFormCategory("job");
+  };
+
+  /* ---- 스트릭 / 누적일 계산 ---- */
+  const habitStreak = useCallback(
+    (id) => {
+      let d = currentDate;
+      if (!(completions[d] || []).includes(id)) d = addDays(d, -1);
+      let count = 0;
+      while ((completions[d] || []).includes(id)) {
+        count++;
+        d = addDays(d, -1);
+      }
+      return count;
+    },
+    [completions, currentDate]
+  );
+  // ---- 숲: 매달 초기화되는 월별 기록 ----
+  const monthDateList = useCallback((monthStr) => {
+    const [y, m] = monthStr.split("-").map(Number);
+    const len = new Date(y, m, 0).getDate();
+    const out = [];
+    for (let n = 1; n <= len; n++) out.push(`${monthStr}-${String(n).padStart(2, "0")}`);
+    return out;
+  }, []);
+  const habitMonthDays = useCallback(
+    (id, monthStr) => monthDateList(monthStr).filter((dt) => (completions[dt] || []).includes(id)).length,
+    [completions, monthDateList]
+  );
+  const habitMonthBestStreak = useCallback(
+    (id, monthStr) => {
+      let best = 0, run = 0;
+      for (const dt of monthDateList(monthStr)) {
+        if ((completions[dt] || []).includes(id)) { run++; best = Math.max(best, run); }
+        else run = 0;
+      }
+      return best;
+    },
+    [completions, monthDateList]
+  );
+  const shiftMonth = (monthStr, n) => {
+    const [y, m] = monthStr.split("-").map(Number);
+    const nd = new Date(y, m - 1 + n, 1);
+    return `${nd.getFullYear()}-${String(nd.getMonth() + 1).padStart(2, "0")}`;
+  };
+  const monthStrLabel = (monthStr) => {
+    const [y, m] = monthStr.split("-").map(Number);
+    return `${y}년 ${m}월`;
+  };
+
+  if (!loaded) {
+    return <div style={{ padding: 24, fontFamily: FONT_BODY, color: INK, background: PAPER, minHeight: "100vh" }}>불러오는 중…</div>;
+  }
+
+  const d = new Date(currentDate + "T00:00:00");
+  const doneList = completions[currentDate] || [];
+  const doneCount = doneList.length;
+  const habitTotal = habits.length;
+  const bestStreak = habits.reduce((m, h) => Math.max(m, habitStreak(h.id)), 0);
+  const hasHabits = habitTotal > 0;
+  const hasEvents = (events[currentDate] || []).length > 0;
+  const todayEvents = (events[currentDate] || [])
+    .slice()
+    .sort((a, b) => (a.time ? 0 : 1) - (b.time ? 0 : 1) || String(a.time).localeCompare(String(b.time)));
+
+  // 달력 드롭다운: calendarMonth가 속한 달 (currentDate와 독립적으로 넘길 수 있음)
+  const cmDate = new Date(calendarMonth + "T00:00:00");
+  const year = cmDate.getFullYear(), month = cmDate.getMonth();
+  const startDow = new Date(year, month, 1).getDay();
+  const monthLen = new Date(year, month + 1, 0).getDate();
+  const calDays = [];
+  for (let i = 0; i < startDow; i++) calDays.push(null);
+  for (let n = 1; n <= monthLen; n++) calDays.push(n);
+
+  // 숲 탭: 습관별 트리 데이터 (forestMonth 기준 — 매달 새로 시작)
+  const currentMonthStr = todayStr().slice(0, 7);
+  const isCurrentForestMonth = forestMonth === currentMonthStr;
+  const trees = habits.map((h) => {
+    const days = habitMonthDays(h.id, forestMonth);
+    const streak = habitMonthBestStreak(h.id, forestMonth);
+    const filled = Math.min(days, LEAF_SLOTS);
+    const grow = 0.62 + 0.38 * Math.min(days / LEAF_SLOTS, 1);
+    const hid = hashNum(h.id);
+    const canopy = generateCanopy(hid);
+    const leaves = canopy.slice(0, Math.min(filled + 1, LEAF_SLOTS)).map((p, i) => ({
+      ...p,
+      on: i < filled,
+      color: LEAF_GREENS[(i * 3 + hid * 2) % LEAF_GREENS.length],
+      pop: i < filled && isCurrentForestMonth && justChecked === h.id && i === filled - 1,
+    }));
+    const rings = [0, 1, 2].map((i) => ({ on: streak >= (i + 1) * 7 }));
+    return { habit: h, days, streak, leaves, rings, grow };
+  });
+  const leafTotal = habits.reduce((sum, h) => sum + Math.min(habitMonthDays(h.id, forestMonth), LEAF_SLOTS), 0);
+
+  return (
+    <div style={{ position: "relative", minHeight: "100vh", background: PAPER, color: INK, fontFamily: FONT_BODY, fontSize: 15 }}>
+      <style>{`
+        @keyframes leafPop { 0% { transform: scale(.2) rotate(-14deg); opacity: 0; } 60% { transform: scale(1.2) rotate(4deg); opacity: 1; } 100% { transform: scale(1) rotate(0); opacity: 1; } }
+        @keyframes sheetUp { from { transform: translateY(105%); } to { transform: translateY(0); } }
+        @keyframes softIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes ringGlow { 0% { opacity: .3; } 100% { opacity: 1; } }
+        .rootin-navbtn:hover { background: rgba(182,130,53,.1); border-color: #b68235; }
+        .rootin-planttbtn:hover { background: rgba(90,107,77,.1); }
+        .rootin-habitbtn:hover { background: rgba(90,107,77,.12); }
+        .rootin-eventbtn:hover { background: rgba(182,130,53,.12); }
+      `}</style>
+
+      <div style={{ padding: "24px 0 190px" }}>
+        {/* ===== 헤더 ===== */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 20px 14px" }}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={MOSS} strokeWidth="1.3">
+            <path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z" />
+            <path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12" />
+          </svg>
+          <span style={{ fontFamily: FONT_DISPLAY, fontSize: 23, letterSpacing: ".06em", lineHeight: 1 }}>Rootin</span>
+          <span style={{ flex: 1 }} />
+          <span style={{ fontFamily: FONT_DISPLAY, fontSize: 11, letterSpacing: ".2em", color: "#9b9797", fontVariantNumeric: "tabular-nums" }}>
+            {d.getFullYear()}
+          </span>
+        </div>
+
+        {tab === "today" && (
+          <div>
+            {/* ===== 날짜 네비게이션 ===== */}
+            <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "0 12px 12px" }}>
+              <button className="rootin-navbtn" onClick={() => shift(-1)} style={navBtnStyle}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4"><path d="m15 18-6-6 6-6" /></svg>
+              </button>
+              <button onClick={() => { setCalendarMonth(currentDate); setTab("calendar"); }} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 2, padding: "4px 0", background: "transparent", border: 0, cursor: "pointer", color: INK, fontFamily: "inherit" }}>
+                <span style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={GOLD} strokeWidth="1.4"><rect x="3" y="4.5" width="18" height="16.5" rx="2" /><path d="M8 3v3M16 3v3M3 10h18" /></svg>
+                  <span style={{ fontFamily: FONT_TITLE, fontSize: 21, lineHeight: 1.1, fontVariantNumeric: "tabular-nums" }}>
+                    {d.getMonth() + 1}월 {d.getDate()}일
+                  </span>
+                </span>
+                <span style={{ fontFamily: FONT_LABEL, fontSize: 11, letterSpacing: ".16em", color: "rgba(32,31,29,.5)" }}>{WD[d.getDay()]}요일</span>
+              </button>
+              <button className="rootin-navbtn" onClick={() => shift(1)} style={navBtnStyle}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4"><path d="m9 18 6-6-6-6" /></svg>
+              </button>
+            </div>
+
+            {/* ===== 오늘 진행률 ===== */}
+            <div style={{ display: "flex", alignItems: "flex-end", gap: 16, padding: "15px 20px 16px", borderTop: "1px solid rgba(32,31,29,.16)", borderBottom: "1px solid rgba(32,31,29,.16)" }}>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 5 }}>
+                <span style={{ fontFamily: FONT_DISPLAY, fontSize: 38, lineHeight: 0.8, fontVariantNumeric: "tabular-nums" }}>{doneCount}</span>
+                <span style={{ fontFamily: FONT_DISPLAY, fontSize: 17, color: "#9b9797", fontVariantNumeric: "tabular-nums" }}>/ {habitTotal}</span>
+              </div>
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 7, paddingBottom: 2 }}>
+                <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
+                  <span style={{ fontFamily: FONT_LABEL, fontSize: 11.5, letterSpacing: ".1em", color: "rgba(32,31,29,.55)" }}>
+                    {habitTotal === 0 ? "심을 습관을 기다립니다" : doneCount === habitTotal ? "오늘 할 일을 모두 마쳤어요" : "오늘 수행한 습관"}
+                  </span>
+                  <span style={{ fontFamily: FONT_DISPLAY, fontSize: 10.5, letterSpacing: ".14em", color: GOLD, fontVariantNumeric: "tabular-nums" }}>
+                    {bestStreak === 0 ? "NO STREAK YET" : `BEST ${bestStreak}일`}
+                  </span>
+                </div>
+                <div style={{ height: 3, background: "rgba(32,31,29,.12)", borderRadius: 2, overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${habitTotal ? (doneCount / habitTotal) * 100 : 0}%`, background: MOSS, transition: "width .35s cubic-bezier(.2,.8,.2,1)" }} />
+                </div>
+              </div>
+            </div>
+
+            {/* ===== 습관 섹션 ===== */}
+            <div style={{ padding: "22px 20px 6px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={MOSS} strokeWidth="1.4">
+                  <path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z" />
+                  <path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12" />
+                </svg>
+                <span style={{ fontFamily: FONT_LABEL, fontSize: 12, fontWeight: 600, letterSpacing: ".2em", color: "#3f4c34" }}>습관</span>
+                <span style={{ fontFamily: FONT_DISPLAY, fontSize: 10, letterSpacing: ".24em", color: "#9b9797" }}>HABITS</span>
+                <span style={{ flex: 1, height: 1, background: "rgba(90,107,77,.3)" }} />
+              </div>
+            </div>
+
+            {hasHabits ? (
+              <div style={{ padding: "0 20px" }}>
+                {habits.map((h) => {
+                  const done = doneList.includes(h.id);
+                  const streak = habitStreak(h.id);
+                  const hot = streak >= 7;
+                  return (
+                    <div key={h.id} style={{ display: "flex", alignItems: "center", gap: 13, padding: "14px 0", borderBottom: "1px solid rgba(32,31,29,.1)" }}>
+                      <button
+                        onClick={() => toggleHabit(h.id)}
+                        style={{
+                          width: 25, height: 25, flex: "none", borderRadius: "50%", cursor: "pointer",
+                          display: "grid", placeItems: "center", transition: "all .18s ease",
+                          border: `1.5px solid ${done ? MOSS : "rgba(90,107,77,.45)"}`,
+                          background: done ? MOSS : "transparent",
+                          boxShadow: done ? "0 0 0 3px rgba(90,107,77,.14)" : "none",
+                        }}
+                      >
+                        {done && <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={PAPER} strokeWidth="2.4"><path d="M20 6 9 17l-5-5" /></svg>}
+                      </button>
+                      <span
+                        style={{
+                          flex: 1, fontFamily: FONT_TITLE, fontSize: 15.5, lineHeight: 1.3,
+                          color: done ? "rgba(32,31,29,.42)" : INK,
+                          textDecoration: done ? "line-through" : "none",
+                          textDecorationColor: "rgba(90,107,77,.5)", textDecorationThickness: "1px",
+                          cursor: "pointer",
+                        }}
+                        onClick={() => toggleHabit(h.id)}
+                      >
+                        {h.name}
+                      </span>
+                      <span style={{
+                        display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 3,
+                        color: hot ? STREAK_ON_DEEP : "rgba(32,31,29,.5)",
+                        background: hot ? STREAK_TINT : "transparent",
+                        border: `1px solid ${hot ? "rgba(63,107,61,.45)" : "rgba(32,31,29,.12)"}`,
+                      }}>
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                          <path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z" />
+                          <path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12" />
+                        </svg>
+                        <span style={{ fontFamily: FONT_DISPLAY, fontSize: 12.5, fontVariantNumeric: "tabular-nums", letterSpacing: ".04em" }}>{streak}</span>
+                      </span>
+                      <button onClick={() => deleteHabit(h.id)} style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(32,31,29,.28)", fontSize: 12, fontFamily: FONT_LABEL, padding: "2px 2px 2px 4px" }}>×</button>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div style={{ margin: "6px 20px 0", padding: "26px 18px", border: "1px dashed rgba(90,107,77,.4)", borderRadius: 4, display: "flex", flexDirection: "column", alignItems: "center", gap: 10, textAlign: "center" }}>
+                <svg width="46" height="52" viewBox="0 0 46 52" fill="none">
+                  <path d="M23 48V24" stroke={MOSS} strokeWidth="1.4" strokeLinecap="round" />
+                  <path d="M23 34c-6-1-9-4-10-8M23 30c5-1 8-3 9-7" stroke={MOSS} strokeWidth="1.1" strokeLinecap="round" opacity=".55" />
+                  <path d="M8 48h30" stroke="#2d2b2b" strokeWidth="1.3" strokeLinecap="round" />
+                </svg>
+                <div style={{ fontFamily: FONT_TITLE, fontSize: 16 }}>아직 심은 습관이 없어요</div>
+                <div style={{ fontFamily: FONT_LABEL, fontSize: 12, lineHeight: 1.7, color: "rgba(32,31,29,.55)", maxWidth: 230 }}>습관을 하나 심으면 숲에 빈 가지 한 그루가 생깁니다.</div>
+                <button className="rootin-planttbtn" onClick={openHabitSheet} style={{ marginTop: 2, padding: "8px 16px", background: "transparent", border: `1px solid ${MOSS}`, borderRadius: 4, color: "#3f4c34", fontFamily: FONT_LABEL, fontSize: 12.5, whiteSpace: "nowrap", cursor: "pointer" }}>첫 습관 심기</button>
+              </div>
+            )}
+
+            {/* ===== 일정 섹션 ===== */}
+            <div style={{ padding: "30px 20px 6px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={GOLD} strokeWidth="1.4"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3.5 2" /></svg>
+                <span style={{ fontFamily: FONT_LABEL, fontSize: 12, fontWeight: 600, letterSpacing: ".2em", color: GOLD_DEEP }}>일정</span>
+                <span style={{ fontFamily: FONT_DISPLAY, fontSize: 10, letterSpacing: ".24em", color: "#9b9797" }}>SCHEDULE</span>
+                <span style={{ flex: 1, height: 1, background: "rgba(182,130,53,.35)" }} />
+              </div>
+            </div>
+
+            {hasEvents ? (
+              <div style={{ padding: "8px 20px 0" }}>
+                {todayEvents.map((ev) => (
+                  <div key={ev.id} style={{ display: "flex", gap: 0, alignItems: "stretch" }}>
+                    <div style={{ width: 54, flex: "none", paddingTop: 13, textAlign: "right", paddingRight: 12 }}>
+                      {ev.time ? (
+                        <span style={{ fontFamily: FONT_DISPLAY, fontSize: 15.5, fontVariantNumeric: "tabular-nums", letterSpacing: ".02em", color: GOLD_DEEP }}>{ev.time}</span>
+                      ) : (
+                        <span style={{ display: "inline-block", padding: "2px 7px", border: "1px solid rgba(182,130,53,.7)", borderRadius: 3, fontFamily: FONT_LABEL, fontSize: 9.5, letterSpacing: ".08em", color: GOLD_DEEP }}>종일</span>
+                      )}
+                    </div>
+                    <div style={{ width: 11, flex: "none", position: "relative", display: "flex", justifyContent: "center" }}>
+                      <span style={{ width: 1, background: "rgba(182,130,53,.35)", height: "100%" }} />
+                      <span style={{ position: "absolute", top: 17, width: 5, height: 5, borderRadius: "50%", background: categoryColor(ev.category) }} />
+                    </div>
+                    <div style={{ flex: 1, padding: "12px 0 16px 14px", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
+                      <div style={{ fontFamily: FONT_TITLE, fontSize: 15.5, lineHeight: 1.35, paddingTop: 1 }}>{ev.title}</div>
+                      <button onClick={() => deleteEvent(ev.id)} style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(32,31,29,.28)", fontSize: 12, fontFamily: FONT_LABEL, marginTop: 2 }}>×</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={{ margin: "10px 20px 0", padding: "24px 18px", border: "1px dashed rgba(182,130,53,.45)", borderRadius: 4, textAlign: "center" }}>
+                <div style={{ fontFamily: FONT_TITLE, fontSize: 16, marginBottom: 6 }}>비어 있는 하루</div>
+                <div style={{ fontFamily: FONT_LABEL, fontSize: 12, lineHeight: 1.7, color: "rgba(32,31,29,.55)" }}>잡힌 일정이 없습니다. 쉬어가도 좋아요.</div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {tab === "calendar" && (
+          <div>
+            <div style={{ padding: "0 20px 16px" }}>
+              <div style={{ fontFamily: FONT_TITLE, fontSize: 24, lineHeight: 1.2, marginBottom: 6 }}>캘린더</div>
+              <div style={{ fontFamily: FONT_LABEL, fontSize: 12, lineHeight: 1.7, color: "rgba(32,31,29,.55)" }}>날짜를 고르면 그날의 습관·일정으로 돌아갑니다.</div>
+            </div>
+
+            <div style={{ margin: "0 20px 16px", padding: "12px 10px 10px", border: "1px solid rgba(32,31,29,.16)", borderRadius: 4 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, padding: "0 2px" }}>
+                <button onClick={() => setCalendarMonth(addMonths(calendarMonth, -1))} style={{ background: "transparent", border: "1px solid rgba(32,31,29,.16)", borderRadius: 4, width: 28, height: 28, display: "grid", placeItems: "center", cursor: "pointer", color: INK }}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="m15 18-6-6 6-6" /></svg>
+                </button>
+                <span style={{ fontFamily: FONT_DISPLAY, fontSize: 16, letterSpacing: ".06em", fontVariantNumeric: "tabular-nums" }}>{year}년 {month + 1}월</span>
+                <button onClick={() => setCalendarMonth(addMonths(calendarMonth, 1))} style={{ background: "transparent", border: "1px solid rgba(32,31,29,.16)", borderRadius: 4, width: 28, height: 28, display: "grid", placeItems: "center", cursor: "pointer", color: INK }}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="m9 18 6-6-6-6" /></svg>
+                </button>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 2, marginBottom: 6 }}>
+                {WD.map((w) => (
+                  <div key={w} style={{ textAlign: "center", fontFamily: FONT_DISPLAY, fontSize: 10, letterSpacing: ".1em", color: "#9b9797" }}>{w}</div>
+                ))}
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 3 }}>
+                {calDays.map((n, i) => {
+                  if (n === null) return <div key={`b${i}`} style={{ minHeight: 70 }} />;
+                  const cd = `${year}-${String(month + 1).padStart(2, "0")}-${String(n).padStart(2, "0")}`;
+                  const sel = cd === currentDate;
+                  const cdEvents = events[cd] || [];
+                  const shown = cdEvents.slice(0, 3);
+                  const extra = cdEvents.length - shown.length;
+                  return (
+                    <button
+                      key={cd}
+                      onClick={() => { setCurrentDate(cd); setJustChecked(null); setTab("today"); }}
+                      style={{
+                        minHeight: 70, display: "flex", flexDirection: "column", alignItems: "stretch", gap: 2,
+                        padding: "3px 2px", background: "transparent", cursor: "pointer", borderRadius: 4,
+                        border: sel ? `1px solid ${GOLD}` : "1px solid transparent",
+                        textAlign: "left",
+                      }}
+                    >
+                      <span style={{
+                        textAlign: "center", fontFamily: FONT_DISPLAY, fontSize: 13, fontVariantNumeric: "tabular-nums",
+                        color: sel ? GOLD_DEEP : "rgba(32,31,29,.75)", fontWeight: sel ? 700 : 500,
+                      }}>
+                        {n}
+                      </span>
+                      <span style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                        {shown.map((ev) => (
+                          <span
+                            key={ev.id}
+                            style={{
+                              fontFamily: FONT_LABEL, fontSize: 8, color: "#fff", background: categoryColor(ev.category),
+                              borderRadius: 2, padding: "1px 3px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                            }}
+                          >
+                            {ev.title}
+                          </span>
+                        ))}
+                        {extra > 0 && (
+                          <span style={{ fontFamily: FONT_LABEL, fontSize: 7.5, color: "rgba(32,31,29,.4)", textAlign: "center" }}>+{extra}</span>
+                        )}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 10, padding: "0 20px", justifyContent: "center" }}>
+              {CATEGORIES.map((c) => (
+                <span key={c.id} style={{ display: "flex", alignItems: "center", gap: 4, fontFamily: FONT_LABEL, fontSize: 11, color: "rgba(32,31,29,.6)" }}>
+                  <span style={{ width: 7, height: 7, borderRadius: "50%", background: c.color }} />
+                  {c.label}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {tab === "forest" && (
+          <div>
+            <div style={{ padding: "0 20px 16px" }}>
+              <div style={{ fontFamily: FONT_TITLE, fontSize: 24, lineHeight: 1.2, marginBottom: 6 }}>나의 숲</div>
+              <div style={{ fontFamily: FONT_LABEL, fontSize: 12, lineHeight: 1.7, color: "rgba(32,31,29,.55)" }}>
+                {habitTotal === 0
+                  ? "아직 한 그루도 없습니다."
+                  : isCurrentForestMonth
+                  ? `습관 ${habitTotal}그루가 자라고 있습니다. 하루를 채울 때마다 그 나무에 잎이 한 장 돋습니다.`
+                  : `${monthStrLabel(forestMonth)}의 기록입니다. 매달 1일이 되면 숲은 다시 빈 가지로 돌아갑니다.`}
+              </div>
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "0 20px 14px", padding: "8px 6px", border: "1px solid rgba(32,31,29,.14)", borderRadius: 4 }}>
+              <button onClick={() => setForestMonth((m) => shiftMonth(m, -1))} style={{ background: "transparent", border: "1px solid rgba(32,31,29,.16)", borderRadius: 4, width: 26, height: 26, display: "grid", placeItems: "center", cursor: "pointer", color: INK }}>
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="m15 18-6-6 6-6" /></svg>
+              </button>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontFamily: FONT_DISPLAY, fontSize: 15, letterSpacing: ".04em", fontVariantNumeric: "tabular-nums", color: isCurrentForestMonth ? INK : MOSS_DEEP }}>
+                  {monthStrLabel(forestMonth)}
+                </span>
+                {!isCurrentForestMonth && (
+                  <button onClick={() => setForestMonth(currentMonthStr)} style={{ background: "transparent", border: `1px solid ${GOLD}`, borderRadius: 20, padding: "2px 8px", cursor: "pointer", color: GOLD_DEEP, fontFamily: FONT_LABEL, fontSize: 10.5 }}>
+                    이번 달
+                  </button>
+                )}
+              </div>
+              <button
+                onClick={() => !isCurrentForestMonth && setForestMonth((m) => shiftMonth(m, 1))}
+                disabled={isCurrentForestMonth}
+                style={{ background: "transparent", border: "1px solid rgba(32,31,29,.16)", borderRadius: 4, width: 26, height: 26, display: "grid", placeItems: "center", cursor: isCurrentForestMonth ? "default" : "pointer", color: INK, opacity: isCurrentForestMonth ? 0.3 : 1 }}
+              >
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="m9 18 6-6-6-6" /></svg>
+              </button>
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 20px 14px" }}>
+              <span style={{ fontFamily: FONT_DISPLAY, fontSize: 10, letterSpacing: ".24em", color: "#9b9797" }}>ONE HABIT · ONE TREE</span>
+              <span style={{ flex: 1, height: 1, background: "rgba(90,107,77,.3)" }} />
+              <span style={{ fontFamily: FONT_DISPLAY, fontSize: 11, letterSpacing: ".12em", color: GOLD, fontVariantNumeric: "tabular-nums" }}>{leafTotal} LEAVES</span>
+            </div>
+
+            {hasHabits ? (
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, padding: "0 20px" }}>
+                {trees.map(({ habit: h, days, streak, leaves, rings, grow }) => (
+                  <div key={h.id} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, padding: "14px 10px 12px", border: "1px solid rgba(32,31,29,.14)", borderRadius: 4 }}>
+                    <TreeSvg leaves={leaves} rings={rings} scale={grow} />
+                    <div style={{ width: "100%", height: 1, background: "rgba(32,31,29,.1)" }} />
+                    <div style={{ fontFamily: FONT_TITLE, fontSize: 14, lineHeight: 1.3, textAlign: "center" }}>{h.name}</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontFamily: FONT_DISPLAY, fontSize: 14, fontVariantNumeric: "tabular-nums", color: "#3f4c34" }}>{days}일</span>
+                      <span style={{ width: 1, height: 11, background: "rgba(32,31,29,.16)" }} />
+                      <span style={{
+                        display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 7px", borderRadius: 3,
+                        color: streak >= 7 ? STREAK_ON_DEEP : "rgba(32,31,29,.5)",
+                        background: streak >= 7 ? STREAK_TINT : "transparent",
+                        border: `1px solid ${streak >= 7 ? "rgba(63,107,61,.45)" : "rgba(32,31,29,.12)"}`,
+                      }}>
+                        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                          <path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z" />
+                          <path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12" />
+                        </svg>
+                        <span style={{ fontFamily: FONT_DISPLAY, fontSize: 11.5, fontVariantNumeric: "tabular-nums" }}>{streak}</span>
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={{ margin: "0 20px", padding: "34px 18px", border: "1px dashed rgba(90,107,77,.4)", borderRadius: 4, display: "flex", flexDirection: "column", alignItems: "center", gap: 14, textAlign: "center" }}>
+                <svg width="150" height="150" viewBox="0 0 104 118" fill="none">
+                  <path d="M52 110V64" stroke="#6b4630" strokeWidth="6.4" strokeLinecap="round" />
+                  <path d="M52 78C44 72 36 66 29 58M52 72c8-6 16-12 24-18M52 66c-6-6-10-12-14-20M52 60c6-6 10-12 14-20M52 64c0-8 0-14-1-24" stroke="#6b4630" strokeWidth="4.2" strokeLinecap="round" />
+                  <path d="M29 58 20 50M29 58 24 46M76 54 84 46M76 54 78 42M38 46 32 38M38 46 40 34M66 40 72 32M66 40 64 28M51 40 45 31M51 40 57 30M51 40 51 25" stroke="#6b4630" strokeWidth="2.4" strokeLinecap="round" />
+                  <path d="M20 50 15 44M24 46 21 39M84 46 89 41M78 42 81 35M32 38 27 31M40 34 38 27M72 32 77 26M64 28 63 21M45 31 41 25M57 30 61 24M51 25 51 18" stroke="#6b4630" strokeWidth="1.4" strokeLinecap="round" />
+                  <path d="M22 110h60" stroke="#2d2b2b" strokeWidth="1.3" strokeLinecap="round" />
+                </svg>
+                <div style={{ fontFamily: FONT_TITLE, fontSize: 17 }}>빈 가지만 있는 숲</div>
+                <div style={{ fontFamily: FONT_LABEL, fontSize: 12, lineHeight: 1.8, color: "rgba(32,31,29,.55)", maxWidth: 250 }}>습관을 심으면 그루가 하나 생기고, 수행한 날마다 잎이 한 장씩 돋아납니다.</div>
+                <button className="rootin-planttbtn" onClick={openHabitSheet} style={{ padding: "9px 18px", background: "transparent", border: `1px solid ${MOSS}`, borderRadius: 4, color: "#3f4c34", fontFamily: FONT_LABEL, fontSize: 12.5, whiteSpace: "nowrap", cursor: "pointer" }}>첫 나무 심기</button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* 하단 페이드 */}
+      <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, height: 190, pointerEvents: "none", background: `linear-gradient(to top, ${PAPER} 58%, rgba(243,242,242,0))`, maxWidth: 480, margin: "0 auto" }} />
+
+      {/* 습관/일정 추가 버튼 */}
+      {tab === "today" && (
+        <div style={{ position: "fixed", left: "50%", transform: "translateX(-50%)", width: "calc(100% - 32px)", maxWidth: 448, bottom: 114, display: "flex", gap: 10, zIndex: 10 }}>
+          <button className="rootin-habitbtn" onClick={openHabitSheet} style={{ flex: 1, height: 48, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, background: "rgba(243,242,242,.92)", backdropFilter: "blur(6px)", border: `1px solid ${MOSS}`, borderRadius: 4, color: "#3f4c34", fontFamily: FONT_LABEL, fontSize: 13.5, letterSpacing: ".06em", cursor: "pointer", boxShadow: "0 1px 2px rgba(45,43,43,.14)" }}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z" /><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12" /></svg>
+            습관 추가
+          </button>
+          <button className="rootin-eventbtn" onClick={openEventSheet} style={{ flex: 1, height: 48, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, background: "rgba(243,242,242,.92)", backdropFilter: "blur(6px)", border: `1px solid ${GOLD}`, borderRadius: 4, color: GOLD_DEEP, fontFamily: FONT_LABEL, fontSize: 13.5, letterSpacing: ".06em", cursor: "pointer", boxShadow: "0 1px 2px rgba(45,43,43,.14)" }}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3.5 2" /></svg>
+            일정 추가
+          </button>
+        </div>
+      )}
+
+      {/* 하단 탭바 */}
+      <div style={{ position: "fixed", left: "50%", transform: "translateX(-50%)", width: "calc(100% - 32px)", maxWidth: 448, bottom: 48, display: "flex", background: "rgba(243,242,242,.94)", backdropFilter: "blur(6px)", border: "1px solid rgba(32,31,29,.16)", borderRadius: 4, overflow: "hidden", zIndex: 10 }}>
+        <button onClick={() => { setCalendarMonth(currentDate); setTab("calendar"); }} style={tabStyle(tab === "calendar")}>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4"><rect x="3" y="4.5" width="18" height="16.5" rx="2" /><path d="M8 3v3M16 3v3M3 10h18" /></svg>
+          <span style={{ fontFamily: FONT_LABEL, fontSize: 12.5, letterSpacing: ".1em" }}>캘린더</span>
+        </button>
+        <span style={{ width: 1, background: "rgba(32,31,29,.16)" }} />
+        <button onClick={() => setTab("today")} style={tabStyle(tab === "today")}>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4"><rect x="3" y="4.5" width="18" height="16.5" rx="2" /><path d="M8 3v3M16 3v3M3 10h18M9 15.5l1.8 1.8L14.5 13" /></svg>
+          <span style={{ fontFamily: FONT_LABEL, fontSize: 12.5, letterSpacing: ".1em" }}>오늘</span>
+        </button>
+        <span style={{ width: 1, background: "rgba(32,31,29,.16)" }} />
+        <button onClick={() => setTab("forest")} style={tabStyle(tab === "forest")}>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4"><path d="M8 19v-6M8 13 4.5 9.5 8 5l3.5 4.5L8 13Z" /><path d="M16 19v-8M16 11l-3-4 3-4 3 4-3 4Z" /></svg>
+          <span style={{ fontFamily: FONT_LABEL, fontSize: 12.5, letterSpacing: ".1em" }}>숲</span>
+        </button>
+      </div>
+
+      {/* 추가 시트 */}
+      {sheet && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 40 }}>
+          <div onClick={closeSheet} style={{ position: "absolute", inset: 0, background: "rgba(45,43,43,.4)" }} />
+          <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", bottom: 0, width: "100%", maxWidth: 480, padding: "22px 20px 44px", background: SHEET_BG, borderTop: "1px solid rgba(32,31,29,.16)", borderRadius: "7px 7px 0 0", boxShadow: "0 -12px 32px rgba(45,43,43,.22)", animation: "sheetUp .26s cubic-bezier(.2,.8,.2,1)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 18 }}>
+              <span style={{ fontFamily: FONT_TITLE, fontSize: 18 }}>{sheet === "event" ? "일정 추가" : "습관 심기"}</span>
+              <span style={{ fontFamily: FONT_DISPLAY, fontSize: 10, letterSpacing: ".24em", color: "#9b9797" }}>{sheet === "event" ? "NEW ENTRY" : "PLANT A TREE"}</span>
+            </div>
+            {sheet === "event" && (
+              <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
+                <input
+                  value={formTime}
+                  onChange={(e) => { setFormTime(e.target.value); setFormAllDay(false); }}
+                  placeholder="09:30"
+                  style={{ width: 96, minHeight: 42, padding: "6px 10px", background: "transparent", border: "1px solid rgba(32,31,29,.16)", borderRadius: 4, fontFamily: FONT_DISPLAY, fontSize: 17, fontVariantNumeric: "tabular-nums", textAlign: "center", color: INK }}
+                />
+                <button
+                  onClick={() => { setFormAllDay((v) => !v); setFormTime(""); }}
+                  style={{
+                    padding: "0 16px", minHeight: 42, borderRadius: 4, cursor: "pointer",
+                    background: formAllDay ? "#fff3e4" : "transparent",
+                    border: `1px solid ${formAllDay ? GOLD : "rgba(32,31,29,.16)"}`,
+                    color: formAllDay ? GOLD_DEEP : "rgba(32,31,29,.6)", fontFamily: FONT_LABEL, fontSize: 13,
+                  }}
+                >
+                  종일
+                </button>
+              </div>
+            )}
+            {sheet === "event" && (
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
+                {CATEGORIES.map((c) => (
+                  <button
+                    key={c.id}
+                    onClick={() => setFormCategory(c.id)}
+                    style={{
+                      padding: "5px 12px", borderRadius: 20, cursor: "pointer",
+                      background: formCategory === c.id ? c.color : "transparent",
+                      border: `1.3px solid ${c.color}`,
+                      color: formCategory === c.id ? "#fff" : c.color,
+                      fontFamily: FONT_LABEL, fontSize: 11.5, fontWeight: 600,
+                    }}
+                  >
+                    {c.label}
+                  </button>
+                ))}
+              </div>
+            )}
+            <input
+              value={formTitle}
+              onChange={(e) => setFormTitle(e.target.value)}
+              placeholder={sheet === "event" ? "무엇을 하나요?" : "어떤 습관을 심을까요?"}
+              onKeyDown={(e) => e.key === "Enter" && save()}
+              autoFocus
+              style={{ width: "100%", minHeight: 44, padding: "8px 12px", background: "transparent", border: "1px solid rgba(32,31,29,.16)", borderRadius: 4, fontFamily: FONT_LABEL, fontSize: 14.5, color: INK, boxSizing: "border-box" }}
+            />
+            <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
+              <button onClick={closeSheet} style={{ flex: 1, height: 46, background: "transparent", border: "1px solid rgba(32,31,29,.16)", borderRadius: 4, fontFamily: FONT_LABEL, fontSize: 13.5, color: INK, cursor: "pointer" }}>취소</button>
+              <button
+                onClick={save}
+                style={{
+                  flex: 1, height: 46, borderRadius: 4, cursor: "pointer", background: "transparent",
+                  border: `1px solid ${sheet === "event" ? GOLD : MOSS}`, color: sheet === "event" ? GOLD_DEEP : MOSS_DEEP,
+                  fontFamily: FONT_LABEL, fontSize: 13.5, letterSpacing: ".06em",
+                }}
+              >
+                {sheet === "event" ? "일정 저장" : "심기"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const navBtnStyle = {
+  width: 38, height: 38, display: "grid", placeItems: "center",
+  background: "transparent", border: "1px solid rgba(32,31,29,.16)", borderRadius: 4,
+  cursor: "pointer", color: INK,
+};
+
+function tabStyle(on) {
+  return {
+    flex: 1, height: 54, display: "flex", alignItems: "center", justifyContent: "center", gap: 7,
+    background: on ? "rgba(90,107,77,.1)" : "transparent", border: 0, cursor: "pointer",
+    color: on ? MOSS_DEEP : "rgba(32,31,29,.45)",
+    boxShadow: on ? `inset 0 -2px 0 ${MOSS}` : "none",
+  };
+}
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<RootinApp />);
+
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./sw.js").catch(() => {});
+  });
+}
+</script>
+</body>
+</html>
