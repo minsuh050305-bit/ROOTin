@@ -203,6 +203,7 @@ function RootinApp() {
   const [formAllDay, setFormAllDay] = useState(false);
   const [formCategory, setFormCategory] = useState("job");
   const [justChecked, setJustChecked] = useState(null);
+  const [editingEventId, setEditingEventId] = useState(null);
 
   /* ---- 폰트 로드 ---- */
   useEffect(() => {
@@ -263,9 +264,17 @@ function RootinApp() {
     saveEvents({ ...events, [currentDate]: list });
   };
 
-  const openHabitSheet = () => { setSheet("habit"); setFormTitle(""); setFormTime(""); setFormAllDay(false); };
-  const openEventSheet = () => { setSheet("event"); setFormTitle(""); setFormTime(""); setFormAllDay(false); setFormCategory("job"); };
-  const closeSheet = () => setSheet(null);
+  const openHabitSheet = () => { setSheet("habit"); setFormTitle(""); setFormTime(""); setFormAllDay(false); setEditingEventId(null); };
+  const openEventSheet = () => { setSheet("event"); setFormTitle(""); setFormTime(""); setFormAllDay(false); setFormCategory("job"); setEditingEventId(null); };
+  const openEditEventSheet = (ev) => {
+    setSheet("event");
+    setFormTitle(ev.title);
+    setFormTime(ev.time || "");
+    setFormAllDay(!ev.time);
+    setFormCategory(ev.category);
+    setEditingEventId(ev.id);
+  };
+  const closeSheet = () => { setSheet(null); setEditingEventId(null); };
 
   const save = () => {
     const title = formTitle.trim();
@@ -275,13 +284,19 @@ function RootinApp() {
     } else if (sheet === "event") {
       const time = formAllDay || !formTime.trim() ? "" : formTime.trim();
       const list = events[currentDate] || [];
-      saveEvents({ ...events, [currentDate]: [...list, { id: `e_${Date.now()}`, time, title, category: formCategory }] });
+      if (editingEventId) {
+        const next = list.map((e) => (e.id === editingEventId ? { ...e, time, title, category: formCategory } : e));
+        saveEvents({ ...events, [currentDate]: next });
+      } else {
+        saveEvents({ ...events, [currentDate]: [...list, { id: `e_${Date.now()}`, time, title, category: formCategory }] });
+      }
     }
     setSheet(null);
     setFormTitle("");
     setFormTime("");
     setFormAllDay(false);
     setFormCategory("job");
+    setEditingEventId(null);
   };
 
   /* ---- 스트릭 / 누적일 계산 ---- */
@@ -531,7 +546,7 @@ function RootinApp() {
             {hasEvents ? (
               <div style={{ padding: "8px 20px 0" }}>
                 {todayEvents.map((ev) => (
-                  <div key={ev.id} style={{ display: "flex", gap: 0, alignItems: "stretch" }}>
+                  <div key={ev.id} onClick={() => openEditEventSheet(ev)} style={{ display: "flex", gap: 0, alignItems: "stretch", cursor: "pointer" }}>
                     <div style={{ width: 54, flex: "none", paddingTop: 13, textAlign: "right", paddingRight: 12 }}>
                       {ev.time ? (
                         <span style={{ fontFamily: FONT_DISPLAY, fontSize: 15.5, fontVariantNumeric: "tabular-nums", letterSpacing: ".02em", color: GOLD_DEEP }}>{ev.time}</span>
@@ -545,7 +560,7 @@ function RootinApp() {
                     </div>
                     <div style={{ flex: 1, padding: "12px 0 16px 14px", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
                       <div style={{ fontFamily: FONT_TITLE, fontSize: 15.5, lineHeight: 1.35, paddingTop: 1 }}>{ev.title}</div>
-                      <button onClick={() => deleteEvent(ev.id)} style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(32,31,29,.28)", fontSize: 12, fontFamily: FONT_LABEL, marginTop: 2 }}>×</button>
+                      <button onClick={(e) => { e.stopPropagation(); deleteEvent(ev.id); }} style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(32,31,29,.28)", fontSize: 12, fontFamily: FONT_LABEL, marginTop: 2 }}>×</button>
                     </div>
                   </div>
                 ))}
@@ -766,8 +781,8 @@ function RootinApp() {
           <div onClick={closeSheet} style={{ position: "absolute", inset: 0, background: "rgba(45,43,43,.4)" }} />
           <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", bottom: 0, width: "100%", maxWidth: 480, padding: "22px 20px 44px", background: SHEET_BG, borderTop: "1px solid rgba(32,31,29,.16)", borderRadius: "7px 7px 0 0", boxShadow: "0 -12px 32px rgba(45,43,43,.22)", animation: "sheetUp .26s cubic-bezier(.2,.8,.2,1)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 18 }}>
-              <span style={{ fontFamily: FONT_TITLE, fontSize: 18 }}>{sheet === "event" ? "일정 추가" : "습관 심기"}</span>
-              <span style={{ fontFamily: FONT_DISPLAY, fontSize: 10, letterSpacing: ".24em", color: "#9b9797" }}>{sheet === "event" ? "NEW ENTRY" : "PLANT A TREE"}</span>
+              <span style={{ fontFamily: FONT_TITLE, fontSize: 18 }}>{sheet === "event" ? (editingEventId ? "일정 수정" : "일정 추가") : "습관 심기"}</span>
+              <span style={{ fontFamily: FONT_DISPLAY, fontSize: 10, letterSpacing: ".24em", color: "#9b9797" }}>{sheet === "event" ? (editingEventId ? "EDIT ENTRY" : "NEW ENTRY") : "PLANT A TREE"}</span>
             </div>
             {sheet === "event" && (
               <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
@@ -813,7 +828,7 @@ function RootinApp() {
                   fontFamily: FONT_LABEL, fontSize: 13.5, letterSpacing: ".06em",
                 }}
               >
-                {sheet === "event" ? "일정 저장" : "심기"}
+                {sheet === "event" ? (editingEventId ? "수정 완료" : "일정 저장") : "심기"}
               </button>
             </div>
           </div>
