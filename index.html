@@ -123,13 +123,7 @@ const RING_D = [
 const WD = ["일", "월", "화", "수", "목", "금", "토"];
 
 // 일정 카테고리 — Rootin 팔레트 톤에 맞춘 색
-const CATEGORIES = [
-  { id: "job", label: "일", color: "#B5546A" },
-  { id: "school", label: "학교", color: "#C99A2E" },
-  { id: "church", label: "교회", color: "#4E8B5C" },
-  { id: "etc", label: "기타", color: "#3E6FA6" },
-  { id: "club", label: "동아리", color: "#7A7A72" },
-];
+ const CATEGORIES = [ { id: "job", label: "일", color: "#B5546A" }, { id: "school", label: "학교", color: "#C99A2E" }, { id: "church", label: "교회", color: "#4E8B5C" }, { id: "etc", label: "기타", color: "#3E6FA6" }, { id: "club", label: "동아리", color: "#7A7A72" }, { id: "purple", label: "보라", color: "#8A6BAF" }, { id: "amber", label: "주황", color: "#C98A3B" }, { id: "moss", label: "이끼", color: "#5B7553" }, { id: "teal", label: "청록", color: "#3E7C8C" }, { id: "brown", label: "갈색", color: "#A65C3E" }, ];
 const categoryColor = (id) => CATEGORIES.find((c) => c.id === id)?.color || "#7A7A72";
 
 /* ===== 날짜 유틸 ===== */
@@ -796,21 +790,7 @@ function RootinApp() {
             )}
             {sheet === "event" && (
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
-                {CATEGORIES.map((c) => (
-                  <button
-                    key={c.id}
-                    onClick={() => setFormCategory(c.id)}
-                    style={{
-                      padding: "5px 12px", borderRadius: 20, cursor: "pointer",
-                      background: formCategory === c.id ? c.color : "transparent",
-                      border: `1.3px solid ${c.color}`,
-                      color: formCategory === c.id ? "#fff" : c.color,
-                      fontFamily: FONT_LABEL, fontSize: 11.5, fontWeight: 600,
-                    }}
-                  >
-                    {c.label}
-                  </button>
-                ))}
+                {CATEGORIES.map((c) => ( <button key={c.id} onClick={() => setFormCategory(c.id)} aria-label={c.label} title={c.label} style={{ width: 30, height: 30, borderRadius: "50%", cursor: "pointer", padding: 0, background: c.color, border: formCategory === c.id ? `2.5px solid ${INK}` : "2.5px solid transparent", boxShadow: formCategory === c.id ? "0 0 0 2px #fff inset" : "none", outline: "none", }} /> ))}
               </div>
             )}
             <input
