@@ -264,7 +264,7 @@ function RootinApp() {
 
   /* ---- 구글 로그인 상태 감시 + 클라우드 동기화 ---- */
   useEffect(() => {
-    window.rootinAuth.getRedirectResult().catch(() => {});
+    window.rootinAuth.getRedirectResult().catch((e) => { alert("리다이렉트 결과 에러: " + e.code + " / " + e.message); });
     const unsub = window.rootinAuth.onAuthStateChanged(async (u) => {
       setUser(u);
       setAuthReady(true);
@@ -295,8 +295,12 @@ function RootinApp() {
   }, []);
 
   const signInWithGoogle = () => {
-    const provider = new firebase.auth.GoogleAuthProvider();
-    window.rootinAuth.signInWithRedirect(provider).catch(() => {});
+    try {
+      const provider = new firebase.auth.GoogleAuthProvider();
+      window.rootinAuth.signInWithRedirect(provider).catch((e) => { alert("로그인 에러: " + e.code + " / " + e.message); });
+    } catch (e) {
+      alert("로그인 예외: " + e.message);
+    }
   };
   const signOutUser = () => { window.rootinAuth.signOut().catch(() => {}); };
 
