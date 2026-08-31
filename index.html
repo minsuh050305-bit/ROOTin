@@ -264,6 +264,7 @@ function RootinApp() {
 
   /* ---- 구글 로그인 상태 감시 + 클라우드 동기화 ---- */
   useEffect(() => {
+    window.rootinAuth.getRedirectResult().catch(() => {});
     const unsub = window.rootinAuth.onAuthStateChanged(async (u) => {
       setUser(u);
       setAuthReady(true);
@@ -295,7 +296,7 @@ function RootinApp() {
 
   const signInWithGoogle = () => {
     const provider = new firebase.auth.GoogleAuthProvider();
-    window.rootinAuth.signInWithPopup(provider).catch(() => {});
+    window.rootinAuth.signInWithRedirect(provider).catch(() => {});
   };
   const signOutUser = () => { window.rootinAuth.signOut().catch(() => {}); };
 
