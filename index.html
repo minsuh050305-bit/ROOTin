@@ -7,7 +7,7 @@
 <meta name="description" content="습관과 일정을 함께 기록하는 나만의 정원" />
 
 <!-- PWA / 홈 화면 설치용 메타 -->
-<meta name="theme-color" content="#f3f2f2" />
+<meta name="theme-color" content="#F9F3EB" />
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -23,7 +23,7 @@
 <script src="https://unpkg.com/@babel/standalone@7.23.9/babel.min.js"></script>
 
 <style>
-  html, body { margin: 0; padding: 0; background: #f3f2f2; }
+  html, body { margin: 0; padding: 0; background: #F9F3EB; }
   #root { min-height: 100vh; }
 </style>
 </head>
@@ -58,8 +58,8 @@ window.storage = {
 
 
 /* ===== 팔레트 / 타이포 (Rootin 디자인 원본 그대로) ===== */
-const PAPER = "#f3f2f2";
-const SHEET_BG = "#eae9e9";
+const PAPER = "#F9F3EB";
+const SHEET_BG = "#F1E9D8";
 const INK = "#201f1d";
 const MOSS = "#5a6b4d";
 const MOSS_DEEP = "#3f4c34";
@@ -67,7 +67,7 @@ const GOLD = "#b68235";
 const GOLD_DEEP = "#7d5411";
 const STREAK_ON = "#3f6b3d";
 const STREAK_ON_DEEP = "#2f4f2d";
-const STREAK_TINT = "#e8efe5";
+const STREAK_TINT = "#EAE6D2";
 
 const FONT_DISPLAY = "'Cormorant Garamond', serif";
 const FONT_TITLE = "'Gowun Batang', serif";
@@ -392,7 +392,7 @@ function RootinApp() {
       <div style={{ padding: "24px 0 190px" }}>
         {/* ===== 헤더 ===== */}
         <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 20px 14px" }}>
-          <img src="./icon-192.png" alt="Rootin" style={{ width: 26, height: 26, borderRadius: 6 }} /> <span style={{ fontFamily: FONT_DISPLAY, fontSize: 23, letterSpacing: ".06em", lineHeight: 1 }}>ROOTin</span>
+          <img src="./logo-header.png" alt="ROOTin" style={{ height: 26, width: "auto", display: "block" }} />
           <span style={{ flex: 1 }} />
           <span style={{ fontFamily: FONT_DISPLAY, fontSize: 11, letterSpacing: ".2em", color: "#9b9797", fontVariantNumeric: "tabular-nums" }}>
             {d.getFullYear()}
@@ -569,7 +569,18 @@ function RootinApp() {
                 <button onClick={() => setCalendarMonth(addMonths(calendarMonth, -1))} style={{ background: "transparent", border: "1px solid rgba(32,31,29,.16)", borderRadius: 4, width: 28, height: 28, display: "grid", placeItems: "center", cursor: "pointer", color: INK }}>
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="m15 18-6-6 6-6" /></svg>
                 </button>
-                <span style={{ fontFamily: FONT_DISPLAY, fontSize: 16, letterSpacing: ".06em", fontVariantNumeric: "tabular-nums" }}>{year}년 {month + 1}월</span>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontFamily: FONT_DISPLAY, fontSize: 16, letterSpacing: ".06em", fontVariantNumeric: "tabular-nums" }}>{year}년 {month + 1}월</span>
+                  <button
+                    onClick={() => { setCalendarMonth(todayStr()); setCurrentDate(todayStr()); }}
+                    style={{
+                      fontFamily: FONT_LABEL, fontSize: 9.5, letterSpacing: ".08em", padding: "3px 9px",
+                      borderRadius: 20, border: `1px solid ${GOLD}`, color: GOLD_DEEP, background: "transparent", cursor: "pointer",
+                    }}
+                  >
+                    TODAY
+                  </button>
+                </div>
                 <button onClick={() => setCalendarMonth(addMonths(calendarMonth, 1))} style={{ background: "transparent", border: "1px solid rgba(32,31,29,.16)", borderRadius: 4, width: 28, height: 28, display: "grid", placeItems: "center", cursor: "pointer", color: INK }}>
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="m9 18 6-6-6-6" /></svg>
                 </button>
