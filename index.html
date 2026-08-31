@@ -200,6 +200,7 @@ function RootinApp() {
   const [sheet, setSheet] = useState(null); // null | "habit" | "event"
   const [formTitle, setFormTitle] = useState("");
   const [formTime, setFormTime] = useState("");
+  const [formEndTime, setFormEndTime] = useState("");
   const [formAllDay, setFormAllDay] = useState(false);
   const [formCategory, setFormCategory] = useState("job");
   const [justChecked, setJustChecked] = useState(null);
@@ -264,12 +265,13 @@ function RootinApp() {
     saveEvents({ ...events, [currentDate]: list });
   };
 
-  const openHabitSheet = () => { setSheet("habit"); setFormTitle(""); setFormTime(""); setFormAllDay(false); setEditingEventId(null); };
-  const openEventSheet = () => { setSheet("event"); setFormTitle(""); setFormTime(""); setFormAllDay(false); setFormCategory("job"); setEditingEventId(null); };
+  const openHabitSheet = () => { setSheet("habit"); setFormTitle(""); setFormTime(""); setFormEndTime(""); setFormAllDay(false); setEditingEventId(null); };
+  const openEventSheet = () => { setSheet("event"); setFormTitle(""); setFormTime(""); setFormEndTime(""); setFormAllDay(false); setFormCategory("job"); setEditingEventId(null); };
   const openEditEventSheet = (ev) => {
     setSheet("event");
     setFormTitle(ev.title);
     setFormTime(ev.time || "");
+    setFormEndTime(ev.endTime || "");
     setFormAllDay(!ev.time);
     setFormCategory(ev.category);
     setEditingEventId(ev.id);
@@ -283,17 +285,19 @@ function RootinApp() {
       saveHabits([...habits, { id: `h_${Date.now()}`, name: title }]);
     } else if (sheet === "event") {
       const time = formAllDay || !formTime.trim() ? "" : formTime.trim();
+      const endTime = formAllDay || !time || !formEndTime.trim() ? "" : formEndTime.trim();
       const list = events[currentDate] || [];
       if (editingEventId) {
-        const next = list.map((e) => (e.id === editingEventId ? { ...e, time, title, category: formCategory } : e));
+        const next = list.map((e) => (e.id === editingEventId ? { ...e, time, endTime, title, category: formCategory } : e));
         saveEvents({ ...events, [currentDate]: next });
       } else {
-        saveEvents({ ...events, [currentDate]: [...list, { id: `e_${Date.now()}`, time, title, category: formCategory }] });
+        saveEvents({ ...events, [currentDate]: [...list, { id: `e_${Date.now()}`, time, endTime, title, category: formCategory }] });
       }
     }
     setSheet(null);
     setFormTitle("");
     setFormTime("");
+    setFormEndTime("");
     setFormAllDay(false);
     setFormCategory("job");
     setEditingEventId(null);
@@ -547,9 +551,14 @@ function RootinApp() {
               <div style={{ padding: "8px 20px 0" }}>
                 {todayEvents.map((ev) => (
                   <div key={ev.id} onClick={() => openEditEventSheet(ev)} style={{ display: "flex", gap: 0, alignItems: "stretch", cursor: "pointer" }}>
-                    <div style={{ width: 54, flex: "none", paddingTop: 13, textAlign: "right", paddingRight: 12 }}>
+                    <div style={{ width: 62, flex: "none", paddingTop: 13, textAlign: "right", paddingRight: 12, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 1 }}>
                       {ev.time ? (
-                        <span style={{ fontFamily: FONT_DISPLAY, fontSize: 15.5, fontVariantNumeric: "tabular-nums", letterSpacing: ".02em", color: GOLD_DEEP }}>{ev.time}</span>
+                        <React.Fragment>
+                          <span style={{ fontFamily: FONT_DISPLAY, fontSize: 15.5, fontVariantNumeric: "tabular-nums", letterSpacing: ".02em", color: GOLD_DEEP, lineHeight: 1.1 }}>{ev.time}</span>
+                          {ev.endTime && (
+                            <span style={{ fontFamily: FONT_DISPLAY, fontSize: 11, fontVariantNumeric: "tabular-nums", letterSpacing: ".02em", color: "rgba(125,84,17,.55)", lineHeight: 1.1 }}>~{ev.endTime}</span>
+                          )}
+                        </React.Fragment>
                       ) : (
                         <span style={{ display: "inline-block", padding: "2px 7px", border: "1px solid rgba(182,130,53,.7)", borderRadius: 3, fontFamily: FONT_LABEL, fontSize: 9.5, letterSpacing: ".08em", color: GOLD_DEEP }}>종일</span>
                       )}
@@ -785,17 +794,26 @@ function RootinApp() {
               <span style={{ fontFamily: FONT_DISPLAY, fontSize: 10, letterSpacing: ".24em", color: "#9b9797" }}>{sheet === "event" ? (editingEventId ? "EDIT ENTRY" : "NEW ENTRY") : "PLANT A TREE"}</span>
             </div>
             {sheet === "event" && (
-              <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 14 }}>
                 <input
                   value={formTime}
                   onChange={(e) => { setFormTime(e.target.value); setFormAllDay(false); }}
                   placeholder="09:30"
-                  style={{ width: 96, minHeight: 42, padding: "6px 10px", background: "transparent", border: "1px solid rgba(32,31,29,.16)", borderRadius: 4, fontFamily: FONT_DISPLAY, fontSize: 17, fontVariantNumeric: "tabular-nums", textAlign: "center", color: INK }}
+                  disabled={formAllDay}
+                  style={{ width: 74, minHeight: 42, padding: "6px 6px", background: formAllDay ? "rgba(32,31,29,.04)" : "transparent", border: "1px solid rgba(32,31,29,.16)", borderRadius: 4, fontFamily: FONT_DISPLAY, fontSize: 15, fontVariantNumeric: "tabular-nums", textAlign: "center", color: INK }}
+                />
+                <span style={{ color: "rgba(32,31,29,.4)", fontFamily: FONT_LABEL, fontSize: 12 }}>~</span>
+                <input
+                  value={formEndTime}
+                  onChange={(e) => { setFormEndTime(e.target.value); setFormAllDay(false); }}
+                  placeholder="10:30"
+                  disabled={formAllDay}
+                  style={{ width: 74, minHeight: 42, padding: "6px 6px", background: formAllDay ? "rgba(32,31,29,.04)" : "transparent", border: "1px solid rgba(32,31,29,.16)", borderRadius: 4, fontFamily: FONT_DISPLAY, fontSize: 15, fontVariantNumeric: "tabular-nums", textAlign: "center", color: INK }}
                 />
                 <button
-                  onClick={() => { setFormAllDay((v) => !v); setFormTime(""); }}
+                  onClick={() => { setFormAllDay((v) => !v); setFormTime(""); setFormEndTime(""); }}
                   style={{
-                    padding: "0 16px", minHeight: 42, borderRadius: 4, cursor: "pointer",
+                    flex: 1, minHeight: 42, borderRadius: 4, cursor: "pointer",
                     background: formAllDay ? "#fff3e4" : "transparent",
                     border: `1px solid ${formAllDay ? GOLD : "rgba(32,31,29,.16)"}`,
                     color: formAllDay ? GOLD_DEEP : "rgba(32,31,29,.6)", fontFamily: FONT_LABEL, fontSize: 13,
