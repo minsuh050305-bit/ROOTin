@@ -22,6 +22,24 @@
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone@7.23.9/babel.min.js"></script>
 
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+  const firebaseConfig = {
+    apiKey: "AIzaSyAjgDB5Ykg0CWtUPRZPKAmqJ7rT80vywsQ",
+    authDomain: "rootin-4c694.firebaseapp.com",
+    projectId: "rootin-4c694",
+    storageBucket: "rootin-4c694.firebasestorage.app",
+    messagingSenderId: "306109056932",
+    appId: "1:306109056932:web:aeb99bcbe0c4d73fa4a331",
+    measurementId: "G-N2GTVGXXKP",
+  };
+  firebase.initializeApp(firebaseConfig);
+  window.rootinAuth = firebase.auth();
+  window.rootinDb = firebase.firestore();
+</script>
+
 <style>
   html, body { margin: 0; padding: 0; background: #F9F3EB; }
   #root { min-height: 100vh; }
@@ -31,7 +49,7 @@
 <div id="root"><div style="padding:24px;font-family:system-ui,sans-serif;color:#201f1d;">불러오는 중…</div></div>
 
 <script type="text/babel" data-presets="react">
-const { useState, useEffect, useMemo, useCallback } = React;
+const { useState, useEffect, useMemo, useCallback, useRef } = React;
 
 /* ===== window.storage 셰임 — Claude 아티팩트의 window.storage API를
    브라우저 localStorage로 그대로 흉내냅니다 (컴포넌트 코드는 수정 없음) ===== */
@@ -205,6 +223,17 @@ function RootinApp() {
   const [formCategory, setFormCategory] = useState("job");
   const [justChecked, setJustChecked] = useState(null);
   const [editingEventId, setEditingEventId] = useState(null);
+  const [user, setUser] = useState(null);
+  const [authReady, setAuthReady] = useState(false);
+
+  const habitsRef = useRef(habits);
+  const completionsRef = useRef(completions);
+  const eventsRef = useRef(events);
+  const userRef = useRef(null);
+  useEffect(() => { habitsRef.current = habits; }, [habits]);
+  useEffect(() => { completionsRef.current = completions; }, [completions]);
+  useEffect(() => { eventsRef.current = events; }, [events]);
+  useEffect(() => { userRef.current = user; }, [user]);
 
   /* ---- 폰트 로드 ---- */
   useEffect(() => {
@@ -233,17 +262,63 @@ function RootinApp() {
     })();
   }, []);
 
+  /* ---- 구글 로그인 상태 감시 + 클라우드 동기화 ---- */
+  useEffect(() => {
+    const unsub = window.rootinAuth.onAuthStateChanged(async (u) => {
+      setUser(u);
+      setAuthReady(true);
+      if (!u) return;
+      try {
+        const docRef = window.rootinDb.collection("rootinUsers").doc(u.uid);
+        const snap = await docRef.get();
+        if (snap.exists) {
+          const data = snap.data() || {};
+          const h = data.habits || [];
+          const c = data.completions || {};
+          const ev = data.events || {};
+          setHabits(h);
+          setCompletions(c);
+          setEvents(ev);
+          try { localStorage.setItem("rootin:habits", JSON.stringify(h)); } catch (e) {}
+          try { localStorage.setItem("rootin:completions", JSON.stringify(c)); } catch (e) {}
+          try { localStorage.setItem("rootin:events", JSON.stringify(ev)); } catch (e) {}
+        } else {
+          await docRef.set(
+            { habits: habitsRef.current, completions: completionsRef.current, events: eventsRef.current },
+            { merge: true }
+          );
+        }
+      } catch (e) {}
+    });
+    return () => unsub();
+  }, []);
+
+  const signInWithGoogle = () => {
+    const provider = new firebase.auth.GoogleAuthProvider();
+    window.rootinAuth.signInWithPopup(provider).catch(() => {});
+  };
+  const signOutUser = () => { window.rootinAuth.signOut().catch(() => {}); };
+
   const saveHabits = useCallback(async (next) => {
     setHabits(next);
     try { await window.storage.set("habits", JSON.stringify(next), false); } catch (e) {}
+    if (userRef.current) {
+      try { await window.rootinDb.collection("rootinUsers").doc(userRef.current.uid).set({ habits: next }, { merge: true }); } catch (e) {}
+    }
   }, []);
   const saveCompletions = useCallback(async (next) => {
     setCompletions(next);
     try { await window.storage.set("completions", JSON.stringify(next), false); } catch (e) {}
+    if (userRef.current) {
+      try { await window.rootinDb.collection("rootinUsers").doc(userRef.current.uid).set({ completions: next }, { merge: true }); } catch (e) {}
+    }
   }, []);
   const saveEvents = useCallback(async (next) => {
     setEvents(next);
     try { await window.storage.set("events", JSON.stringify(next), false); } catch (e) {}
+    if (userRef.current) {
+      try { await window.rootinDb.collection("rootinUsers").doc(userRef.current.uid).set({ events: next }, { merge: true }); } catch (e) {}
+    }
   }, []);
 
   const shift = (n) => {
@@ -410,7 +485,7 @@ function RootinApp() {
 
       <div style={{ padding: "24px 0 190px" }}>
         {/* ===== 헤더 ===== */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "0 20px 14px" }}>
+        <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center", padding: "0 20px 14px" }}>
           <button
             onClick={() => { setCurrentDate(todayStr()); setCalendarMonth(todayStr()); setTab("today"); }}
             style={{ background: "transparent", border: 0, padding: 0, cursor: "pointer", display: "flex" }}
@@ -418,6 +493,36 @@ function RootinApp() {
           >
             <img src="./logo-header.png" alt="ROOTin" style={{ height: 44, width: "auto", display: "block" }} />
           </button>
+          <div style={{ position: "absolute", right: 20, top: 0, bottom: 14, display: "flex", alignItems: "center" }}>
+            {authReady && (
+              user ? (
+                <button
+                  onClick={signOutUser}
+                  title={`${user.displayName || "로그아웃"}`}
+                  style={{ background: "transparent", border: 0, padding: 0, cursor: "pointer", display: "flex", borderRadius: "50%" }}
+                >
+                  {user.photoURL ? (
+                    <img src={user.photoURL} alt="" style={{ width: 26, height: 26, borderRadius: "50%", display: "block" }} />
+                  ) : (
+                    <div style={{ width: 26, height: 26, borderRadius: "50%", background: MOSS, color: "#fff", display: "grid", placeItems: "center", fontFamily: FONT_LABEL, fontSize: 11 }}>
+                      {(user.displayName || "U").slice(0, 1)}
+                    </div>
+                  )}
+                </button>
+              ) : (
+                <button
+                  onClick={signInWithGoogle}
+                  style={{
+                    fontFamily: FONT_LABEL, fontSize: 10.5, letterSpacing: ".04em", padding: "5px 10px",
+                    borderRadius: 20, border: `1px solid ${GOLD}`, color: GOLD_DEEP, background: "transparent", cursor: "pointer",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  로그인
+                </button>
+              )
+            )}
+          </div>
         </div>
 
         {tab === "today" && (
